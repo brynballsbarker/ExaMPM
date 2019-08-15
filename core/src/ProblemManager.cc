@@ -342,14 +342,14 @@ void ProblemManager::updateParticles( const double delta_t,
 
         // Gradient work vectors.
         std::array<std::array<double,3>,3> delta_F;
-        std::array<std::array<double,3>,3> work;
+        std::array<std::array<double,3>,3> new_F;
 
         // Reset the deformation gradient increment and velocity gradient.
         for ( int d = 0; d < space_dim; ++d )
         {
             std::fill( p.grad_v[d].begin(), p.grad_v[d].end(), 0.0 );
             std::fill( delta_F[d].begin(), delta_F[d].end(), 0.0 );
-            std::fill( work[d].begin(), work[d].end(), 0.0 );
+            std::fill( new_F[d].begin(), new_F[d].end(), 0.0 );
         }
 
         // Gather from each node.
@@ -376,25 +376,25 @@ void ProblemManager::updateParticles( const double delta_t,
         // Scale the velocity gradient.
         for ( int i = 0; i < space_dim; ++i )
             for ( int j = 0; j < space_dim; ++j )
-                work[i][j] = p.grad_v[i][j] * delta_t;
+                delta_F[i][j] = p.grad_v[i][j] * delta_t;
 
-        // Compute the deformation gradient increment.
+        // Add the scaled velocity gradient to the identity.
+        for ( int i = 0; i < space_dim; ++i )
+            delta_F[i][i] += 1.0;
+
+        // Compute the new deformation gradient.
         for ( int i = 0; i < space_dim; ++i )
             for ( int j = 0; j < space_dim; ++j )
                 for ( int k = 0; k < space_dim; ++k )
-                    delta_F[i][j] += work[i][k] * p.F[k][j];
+                    new_F[i][j] += delta_F[i][k] * p.F[k][j];
 
         // Update the deformation gradient.
         for ( int i = 0; i < space_dim; ++i )
             for ( int j = 0; j < space_dim; ++j )
-                p.F[i][j] += delta_F[i][j];
-
-        // Add the scaled velocity gradient to the identity.
-        for ( int i = 0; i < space_dim; ++i )
-            work[i][i] += 1.0;
+                p.F[i][j] = new_F[i][j];
 
         // Update the particle volume.
-        p.volume *= TensorTools::determinant( work );
+        p.volume *= TensorTools::determinant( delta_F );
 
         // Compute the particle stress.
         d_materials[p.matid]->calculateStress( p );
@@ -431,6 +431,26 @@ void ProblemManager::writeTimeStepToFile(
 
     // Close the time step file
     file.close();
+
+
+    std::ofstream nextfile( "Jval.csv." + std::to_string(step) );
+
+    // Write the data header.
+    nextfile << "x, y, z, J" << std::endl;
+
+    // Write the particle data.
+    double J = 0.0;
+    for ( auto& p : d_particles )
+    {
+        J = p.volume;
+        nextfile << p.r[0] << ", "
+             << p.r[1] << ", "
+             << p.r[2] << ", "
+             << J << std::endl;
+    }
+
+    // Close the time step file
+    nextfile.close();
 }
 
 //---------------------------------------------------------------------------//
